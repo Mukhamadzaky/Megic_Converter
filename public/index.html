@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebP Magic Converter + Cloud Save</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: sans-serif; background-color: #f3f4f6; }
+        .drop-zone.active { border-color: #3b82f6; background-color: #eff6ff; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-screen p-8">
+
+    <div class="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        <div class="bg-white p-8 rounded-2xl shadow-xl h-fit">
+            <h1 class="text-2xl font-bold text-gray-800 mb-2"><i class="fa-solid fa-wand-magic-sparkles text-blue-500"></i> WebP Converter</h1>
+            <p class="text-xs text-gray-500 mb-6">Convert & Auto-Save to Server</p>
+
+            <div id="drop-area" class="border-2 border-dashed border-gray-300 w-full h-48 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 relative overflow-hidden transition">
+                <input type="file" id="file-input" accept="image/webp" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                <div id="upload-instruction" class="text-center pointer-events-none text-gray-400">
+                    <i class="fa-solid fa-cloud-arrow-up text-4xl mb-3"></i>
+                    <p>Upload .WebP</p>
+                </div>
+                <img id="image-preview" class="absolute inset-0 w-full h-full object-contain p-2 bg-gray-50 hidden">
+            </div>
+
+            <div id="controls" class="mt-6 opacity-50 pointer-events-none transition">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <label class="cursor-pointer"><input type="radio" name="format" value="jpeg" class="peer sr-only" checked><div class="p-2 text-center border rounded peer-checked:bg-blue-50 peer-checked:border-blue-500 text-sm">JPG</div></label>
+                    <label class="cursor-pointer"><input type="radio" name="format" value="png" class="peer sr-only"><div class="p-2 text-center border rounded peer-checked:bg-blue-50 peer-checked:border-blue-500 text-sm">PNG</div></label>
+                </div>
+                <button id="convert-btn" onclick="processConversion()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow transition">
+                    Convert & Save
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white p-8 rounded-2xl shadow-xl">
+            <h2 class="text-xl font-bold text-gray-800 mb-4"><i class="fa-solid fa-clock-rotate-left"></i> Riwayat Server</h2>
+            <div class="overflow-y-auto h-[400px]">
+                <table class="w-full text-sm text-left text-gray-500">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-2 py-3">File</th>
+                            <th class="px-2 py-3">Fmt</th>
+                            <th class="px-2 py-3 text-right">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-list">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- KONFIGURASI URL BACKEND (WAJIB) ---
+        // Ganti ini jika backend Anda berjalan di alamat lain
+        const BASE_URL = 'http://localhost:3000'; 
+
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const preview = document.getElementById('image-preview');
+        const controls = document.getElementById('controls');
+        let originalImage = null;
+        let originalFileName = '';
+
+        // --- 1. HANDLING INPUT ---
+        fileInput.addEventListener('change', function() { handleFile(this.files[0]); });
+        
+        function handleFile(file) {
+            if (!file || file.type !== 'image/webp') return alert('Harus file .webp!');
+            originalFileName = file.name;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.classList.remove('hidden');
+                document.getElementById('upload-instruction').classList.add('hidden');
+                controls.classList.remove('opacity-50', 'pointer-events-none');
+                originalImage = new Image();
+                originalImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // --- 2. PROSES KONVERSI & UPLOAD ---
+        function processConversion() {
+            const btn = document.getElementById('convert-btn');
+            btn.innerHTML = `<div class="loader"></div> Processing...`;
+            
+            setTimeout(() => {
+                const format = document.querySelector('input[name="format"]:checked').value;
+                const canvas = document.createElement('canvas');
+                canvas.width = originalImage.width;
+                canvas.height = originalImage.height;
+                const ctx = canvas.getContext('2d');
+
+                if (format === 'jpeg') {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+                ctx.drawImage(originalImage, 0, 0);
+
+                // KUNCI UTAMA: Ubah Canvas jadi BLOB (File Object) untuk dikirim ke backend
+                canvas.toBlob((blob) => {
+                    uploadToBackend(blob, format);
+                    
+                    // Trigger download lokal juga (Opsional)
+                    const link = document.createElement('a');
+                    link.download = `converted.${format === 'jpeg' ? 'jpg' : 'png'}`;
+                    link.href = URL.createObjectURL(blob);
+                    link.click();
+
+                }, `image/${format}`, 0.9);
+
+            }, 500);
+        }
+
+        // --- 3. KIRIM KE BACKEND ---
+        function uploadToBackend(blob, format) {
+            const formData = new FormData();
+            // 'image' harus sama dengan upload.single('image') di server.js
+            formData.append('image', blob, `converted.${format === 'jpeg' ? 'jpg' : 'png'}`);
+            formData.append('originalName', originalFileName);
+            formData.append('format', format.toUpperCase());
+
+            // FIX: Menggunakan BASE_URL agar menembak ke port 3000
+            fetch(`${BASE_URL}/api/save`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) {
+                    loadHistory(); // Refresh tabel
+                    const btn = document.getElementById('convert-btn'); 
+                    btn.innerHTML = `Success!`;
+                    setTimeout(() => btn.innerHTML = 'Convert & Save', 2000);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Gagal simpan ke server (Pastikan server.js berjalan di port 3000)');
+            });
+        }
+
+        // --- 4. LOAD RIWAYAT DARI DATABASE ---
+        function loadHistory() {
+            // FIX: Menggunakan BASE_URL
+            fetch(`${BASE_URL}/api/history`)
+            .then(res => res.json())
+            .then(data => {
+                const list = document.getElementById('history-list');
+                list.innerHTML = data.map(item => `
+                    <tr class="bg-white border-b hover:bg-gray-50">
+                        <td class="px-2 py-3 font-medium text-gray-900 truncate max-w-[100px]" title="${item.original_name}">
+                            ${item.original_name}
+                        </td>
+                        <td class="px-2 py-3">
+                            <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">${item.format}</span>
+                        </td>
+                        <td class="px-2 py-3 text-right">
+                            <a href="${BASE_URL}/uploads/${item.converted_name}" download class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded text-xs px-3 py-1.5">
+                                <i class="fa-solid fa-download"></i>
+                            </a>
+                        </td>
+                    </tr>
+                `).join('');
+            })
+            .catch(err => console.log("Gagal load history, server mati?"));
+        }
+
+        // Load saat pertama buka
+        loadHistory();
+    </script>
+</body>
+</html>
